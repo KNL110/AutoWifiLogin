@@ -3,7 +3,7 @@ Description=Run autowifilogin periodically to catch captive portal timeouts
 
 [Timer]
 OnBootSec=15s
-OnUnitActiveSec=1h
+OnUnitActiveSec=30s
 AccuracySec=1min
 
 [Install]
