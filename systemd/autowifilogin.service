@@ -1,8 +1,12 @@
 [Unit]
-Description=Log back into the campus wifi captive portal if the connection has timed out
+Description=Wifi captive portal login
 After=network-online.target
+StartLimitIntervalSec=200
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
 EnvironmentFile=%h/.config/autowifilogin/env
 ExecStart=%h/Projects/autoWifiLogin/autowifilogin
+Restart=on-failure
+RestartSec=20
