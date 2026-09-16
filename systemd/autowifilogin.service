@@ -1,0 +1,8 @@
+[Unit]
+Description=Log back into the campus wifi captive portal if the connection has timed out
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/autowifilogin/env
+ExecStart=%h/Projects/autoWifiLogin/autowifilogin
