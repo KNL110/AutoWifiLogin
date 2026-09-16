@@ -1,33 +1,37 @@
-# autowifilogin
+# AutoWifiLogin
 
-Auto-relogin for the IIT Goa PAN-OS captive portal (`firewall.iitgoa.ac.in`).
-Checks connectivity via `http://connectivitycheck.gstatic.com/generate_204`;
-if the request gets redirected to the portal instead of returning `204`, it
-parses the login form and re-submits your credentials automatically.
+A small Go daemon that automatically re-authenticates against IIT Goa's
+PAN-OS-based wifi captive portal (`firewall.iitgoa.ac.in`) whenever a
+session times out.
 
 ## How it works
 
-The portal issues a fresh, single-use `token` (in the URL) and `preauthid`
-(hidden form field) on every unauthenticated request, so nothing is
-hardcoded — each run fetches the current login page, pulls the live hidden
-fields out of the HTML, and POSTs your credentials against those.
+The daemon polls `http://connectivitycheck.gstatic.com/generate_204`, the
+same endpoint browsers use for captive-portal detection. A `204` response
+means the connection is authenticated; any other response (a redirect to
+the portal) means the session has expired.
 
-## Layout
+On expiry, it fetches the portal's login page and parses the current
+`token` and `preauthid` values from the HTML. These are single-use and
+regenerated on every unauthenticated request, so they are read live rather
+than hardcoded. It then submits the login form with the configured
+credentials, replicating the request a browser would send.
 
-- `cmd/autowifilogin/main.go` — CLI entrypoint: reads credentials from the
-  environment, orchestrates a check-then-login-if-needed cycle
-- `internal/portal/portal.go` — the `Client` type: `Online()` connectivity
-  check, `Login()` (fetch form → submit)
-- `internal/portal/html.go` — generic `<input>` field scraper used to read
-  the portal's hidden form fields (token/preauthid/etc.)
-- `systemd/autowifilogin.service` — oneshot unit that runs the binary
-- `systemd/autowifilogin.timer` — triggers the service on boot and hourly
+## Project layout
 
-## Setup
+| Path | Description |
+| --- | --- |
+| `cmd/autowifilogin/main.go` | Entrypoint: reads credentials from the environment and runs one check/login cycle |
+| `internal/portal/portal.go` | `Client` type implementing `Online()` and `Login()` |
+| `internal/portal/html.go` | Generic `<input>` field parser used to extract the portal's hidden form fields |
+| `systemd/autowifilogin.service` | Oneshot unit that runs the binary |
+| `systemd/autowifilogin.timer` | Triggers the service on boot and hourly thereafter |
 
-Credentials are read from environment variables, never committed to the
-repo. Create `~/.config/autowifilogin/env` (and lock it down with
-`chmod 600`):
+## Configuration
+
+Credentials are supplied via environment variables (`WIFI_USER`,
+`WIFI_PASS`), never hardcoded or committed. When run via the provided
+systemd unit, they are loaded from an `EnvironmentFile`:
 
 ```sh
 mkdir -p ~/.config/autowifilogin
@@ -38,37 +42,48 @@ EOF
 chmod 600 ~/.config/autowifilogin/env
 ```
 
-Build and (re)install after any code change:
+## Build
 
 ```sh
-cd ~/Projects/autoWifiLogin
 go build -o autowifilogin ./cmd/autowifilogin
-cp systemd/*.service systemd/*.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user restart autowifilogin.timer
 ```
 
-Check it's running / see recent activity:
+## Installation (systemd user timer)
+
+```sh
+cp systemd/*.service systemd/*.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now autowifilogin.timer
+```
+
+Status and logs:
 
 ```sh
 systemctl --user status autowifilogin.timer
 journalctl --user -u autowifilogin.service -n 50 -f
 ```
 
-Run it manually once (useful right after your session times out, to watch
-it work):
+The timer only runs while an active login session exists (`Linger=no` by
+default). To keep it running while logged out, enable lingering:
 
 ```sh
-set -a; source ~/.config/autowifilogin/env; set +a
-./autowifilogin
+loginctl enable-linger $USER
+```
+
+## Manual run
+
+```sh
+WIFI_USER=... WIFI_PASS=... ./autowifilogin
 ```
 
 ## Notes
 
-- The timer only runs while you have an active login session (`Linger=no`).
-  If you want it to keep running even when logged out (e.g. on a headless
-  box), run: `loginctl enable-linger $USER`.
-- If the portal's HTML changes (field names, etc.), `parseInputFields` in
-  `internal/portal/html.go` collects every `<input>` name/value pair
-  generically, so most small changes won't need code updates — only a
-  genuinely new required field would.
+- `parseInputFields` collects every `<input>` name/value pair generically
+  rather than targeting specific field names, so minor portal page changes
+  typically don't require code changes.
+- TLS certificate verification is disabled for the portal host, which
+  serves its login page from an internal CA.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
